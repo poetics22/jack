@@ -2,10 +2,12 @@
   "use strict";
 
   const DATA = window.JACK_MEDIA || { base: "media/", items: [] };
+  // "with-me" is the stored id for what's now shown as "With Jon"
   const TAG_LABELS = {
-    sleeping:"Sleeping", "with-me":"With me", licking:"Licking", vocal:"Screaming",
+    sleeping:"Sleeping", "with-me":"With Jon", "with-corey":"With Corey",
+    loving:"Loving", begging:"Begging", licking:"Licking", vocal:"Screaming",
     blankets:"Blankets", portrait:"Face", playing:"Playing", outdoors:"Outdoors",
-    others:"With others", funny:"Funny", milestone:"Milestones", holiday:"Holidays"
+    others:"With others", funny:"Funny"
   };
   const SLIDE_MS = 5000;
 
