@@ -1,0 +1,11 @@
+# local-only tooling, not part of the published app
+review-tool.html
+dedupe-tool.html
+demo.html
+serve.ps1
+start-app.ps1
+build-media.sh
+encode-videos.sh
+.ffmpeg-path
+.ffprobe-path
+_check/
