@@ -169,8 +169,32 @@
   const next = () => show(idx+1);
   const prev = () => show(idx-1);
 
+  // Keep the screen on while the slideshow plays. Android Chrome supports this
+  // over https. The browser drops the lock whenever the app is hidden, so it's
+  // re-requested when the app comes back to the front.
+  let wakeLock = null;
+  async function keepAwake(on){
+    try{
+      if (on && "wakeLock" in navigator && document.visibilityState === "visible"){
+        if (!wakeLock){
+          wakeLock = await navigator.wakeLock.request("screen");
+          wakeLock.addEventListener("release", () => { wakeLock = null; });
+        }
+      } else if (!on && wakeLock){
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    }catch(e){
+      wakeLock = null;   // e.g. battery saver refused it — the slideshow still runs
+    }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && playing) keepAwake(true);
+  });
+
   function setPlaying(on){
     playing = on;
+    keepAwake(on);
     playBtn.textContent = on ? "❚❚" : "▶";
     playBtn.setAttribute("aria-pressed", String(on));
     playBtn.setAttribute("aria-label", on ? "Pause slideshow" : "Play slideshow");
