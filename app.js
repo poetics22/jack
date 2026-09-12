@@ -2,20 +2,38 @@
   "use strict";
 
   const DATA = window.JACK_MEDIA || { base: "media/", items: [] };
-  // "with-me" is the stored id for what's now shown as "With Jon"
-  const TAG_LABELS = {
-    sleeping:"Sleeping", "with-me":"With Jon", "with-corey":"With Corey",
-    loving:"Loving", begging:"Begging", licking:"Licking", vocal:"Screaming",
-    blankets:"Blankets", portrait:"Face", playing:"Playing", outdoors:"Outdoors",
-    others:"With others", funny:"Funny"
-  };
   const SLIDE_MS = 5000;
+  const CHROME_IDLE_MS = 3000;   // while playing, controls fade this long after the last touch
+  const NAP_EVERY = 6;           // in mixed views, at most one plain nap in every six photos
+  const MIN_FOR_CHIP = 3;
+
+  // The chips offer moods. Each gathers one or more tags, so the bar stays
+  // short however finely the photos were tagged. ("with-me" is the stored id
+  // for "With Jon".)
+  const MOODS = [
+    { id:"star",    label:"★ Favorites", cls:"star", test: (it) => !!it.star },
+    { id:"jon",     label:"With Jon",    tags:["with-me"] },
+    { id:"corey",   label:"With Corey",  tags:["with-corey"] },
+    { id:"silly",   label:"Silly",       tags:["funny","licking","vocal"] },
+    { id:"loving",  label:"Loving",      tags:["loving","begging"] },
+    { id:"sleepy",  label:"Sleepy",      tags:["sleeping","blankets"] },
+    { id:"outside", label:"Outside",     tags:["outdoors","playing"] },
+  ];
+
+  // Joy weighting. Stars, and the tags that most often earned one, surface
+  // sooner. A "plain nap" (asleep, not starred, nothing sweet or silly) is
+  // the most common photo and the one least often starred, so it's held back.
+  const JOY_TAGS = new Set(["loving","begging","funny","playing","licking","vocal"]);
+  const NAP_TAGS = new Set(["sleeping","blankets"]);
+  const hasAny = (it, set) => (it.tags || []).some((t) => set.has(t));
+  const isNap  = (it) => hasAny(it, NAP_TAGS) && !it.star && !hasAny(it, JOY_TAGS);
+  const weight = (it) => (it.star ? 3 : 1) * (hasAny(it, JOY_TAGS) ? 2 : 1) * (isNap(it) ? 0.5 : 1);
 
   const $ = (s) => document.querySelector(s);
   const layer=$("#layer"), cap=$("#cap"), countEl=$("#count"), railI=$("#rail>i");
-  const playBtn=$("#play"), hint=$("#hint"), filtersEl=$("#filters"), emptyEl=$("#empty");
+  const playBtn=$("#play"), muteBtn=$("#mute"), hint=$("#hint"), filtersEl=$("#filters"), emptyEl=$("#empty");
 
-  let order = [];       // the current, filtered, balanced play order
+  let order = [];            // this visit's play order for the current mood
   let idx = 0;
   let playing = false;
   let timer = null;
@@ -28,78 +46,117 @@
 
   if (!DATA.items.length){ emptyEl.hidden = false; return; }
 
+  // Forgiving local storage — a private window or a full disk can refuse it
+  const store = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e){ return d; } },
+    set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+  };
+  const SHOWN_KEY = "jack.shown.v1", SOUND_KEY = "jack.sound.v1";
+
   /* ---------------------------------------------------------------
-     Balanced ordering.
-
-     A plain shuffle floods the view with whatever category is biggest
-     (600 sleeping photos drown 25 of "with me"). Instead each item gets
-     a fractional position within its own tag group — item i of n sits at
-     (i + 0.5) / n — and everything is sorted by that. Every group is then
-     spread evenly across the whole sequence no matter how large it is.
+     No repeats between visits. Each phone remembers which photos it has
+     shown; every visit starts with ones it hasn't, and nothing comes back
+     until everything else has had its turn. Plain naps run their own
+     round, so holding them back never stalls the rest from cycling.
   --------------------------------------------------------------- */
-  function balancedOrder(items){
-    const groups = new Map();
-    for (const it of items){
-      const key = (it.tags && it.tags.length) ? it.tags[0] : "_untagged";
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(it);
-    }
-    const spread = [];
-    for (const list of groups.values()){
-      shuffle(list);
-      const n = list.length;
-      list.forEach((it,i) => spread.push({ it, pos:(i + 0.5)/n, jitter:Math.random()*1e-6 }));
-    }
-    spread.sort((a,b) => (a.pos - b.pos) || (a.jitter - b.jitter));
-    const seq = spread.map(s => s.it);
+  const known = new Set(DATA.items.map((it) => it.src));
+  const shown = new Set(store.get(SHOWN_KEY, []).filter((s) => known.has(s)));
+  let shownSaveTimer = null;
+  const saveShown = () => store.set(SHOWN_KEY, [...shown]);
+  function markShown(src){
+    if (shown.has(src)) return;
+    shown.add(src);
+    clearTimeout(shownSaveTimer);
+    shownSaveTimer = setTimeout(saveShown, 500);
+  }
+  addEventListener("pagehide", saveShown);
 
-    // Open on a favourite when there is one
-    const firstStar = seq.findIndex(x => x.star);
-    if (firstStar > 0) seq.unshift(seq.splice(firstStar,1)[0]);
+  function startNewRoundsWhereFinished(){
+    const naps = DATA.items.filter(isNap), rest = DATA.items.filter((it) => !isNap(it));
+    for (const pool of [naps, rest]){
+      if (pool.length && pool.every((it) => shown.has(it.src))) pool.forEach((it) => shown.delete(it.src));
+    }
+    saveShown();
+  }
+
+  // Weighted shuffle: each photo draws random^(1/weight), so heavier ones
+  // tend to land earlier while everything still gets a turn.
+  function weightedShuffle(list){
+    return list.map((it) => ({ it, k: Math.pow(Math.random(), 1 / weight(it)) }))
+               .sort((a, b) => b.k - a.k).map((x) => x.it);
+  }
+  const freshFirst = (list) =>
+    weightedShuffle(list.filter((it) => !shown.has(it.src)))
+      .concat(weightedShuffle(list.filter((it) => shown.has(it.src))));
+
+  function buildOrder(items){
+    const naps = items.filter(isNap), rest = items.filter((it) => !isNap(it));
+    let seq;
+    if (!rest.length || naps.length >= rest.length){
+      seq = freshFirst(items);                  // a mostly-nap view, like Sleepy, is left as is
+    } else {
+      const a = freshFirst(rest), b = freshFirst(naps);
+      seq = [];
+      while (a.length || b.length){
+        const napTurn = seq.length % NAP_EVERY === NAP_EVERY - 1;
+        seq.push(napTurn && b.length ? b.shift() : a.length ? a.shift() : b.shift());
+      }
+    }
+    // Open on a favorite this phone hasn't shown yet this round
+    const s = seq.findIndex((it) => it.star && !shown.has(it.src));
+    if (s > 0 && s < 25) seq.unshift(seq.splice(s, 1)[0]);
     return seq;
   }
 
-  function shuffle(a){
-    for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
-    return a;
+  function itemsFor(id){
+    const m = MOODS.find((x) => x.id === id);
+    if (!m) return DATA.items;
+    return DATA.items.filter(m.test || ((it) => (it.tags || []).some((t) => m.tags.includes(t))));
   }
 
   function applyFilter(f){
     filter = f;
-    const items = DATA.items.filter(it =>
-      f==="all" ? true : f==="star" ? it.star : (it.tags||[]).includes(f));
-    order = balancedOrder(items);
+    startNewRoundsWhereFinished();
+    order = buildOrder(itemsFor(f));
     idx = 0;
-    [...filtersEl.children].forEach(b => b.classList.toggle("on", b.dataset.f===f));
-    nodes.forEach(n => n.remove());
+    [...filtersEl.children].forEach((b) => b.classList.toggle("on", b.dataset.f === f));
+    nodes.forEach((n) => n.remove());
     nodes.clear();
-    show(0, true);
+    show(0);
   }
 
   function buildFilters(){
-    const counts = {};
-    DATA.items.forEach(it => (it.tags||[]).forEach(t => counts[t]=(counts[t]||0)+1));
-    const stars = DATA.items.filter(it => it.star).length;
-
-    const chips = [["all", `All ${DATA.items.length}`, ""]];
-    if (stars) chips.push(["star", `★ Favorites ${stars}`, "star"]);
-    // A filter holding one or two photos isn't worth a chip — it just clutters
-    // the bar. Tags earn a chip once there's a real group behind them.
-    const MIN_FOR_CHIP = 3;
-    Object.keys(counts).filter(t => counts[t] >= MIN_FOR_CHIP)
-      .sort((a,b)=>counts[b]-counts[a])
-      .forEach(t => chips.push([t, `${TAG_LABELS[t]||t} ${counts[t]}`, ""]));
-
-    // With only one way to slice it, the bar is noise
+    const chips = [{ id:"all", label:"All" }]
+      .concat(MOODS.filter((m) => itemsFor(m.id).length >= MIN_FOR_CHIP));
     if (chips.length < 2) return;
     filtersEl.innerHTML = "";
-    chips.forEach(([f,label,cls]) => {
-      const b=document.createElement("button");
-      b.dataset.f=f; b.textContent=label; if(cls) b.className=cls;
-      b.addEventListener("click", () => applyFilter(f));
+    chips.forEach((c) => {
+      const b = document.createElement("button");
+      b.dataset.f = c.id; b.textContent = c.label;
+      if (c.cls) b.className = c.cls;
+      b.addEventListener("click", () => applyFilter(c.id));
       filtersEl.appendChild(b);
     });
   }
+
+  /* ---- sound: browsers keep videos silent until the first touch; after
+          that they follow the mute button, which this phone remembers ---- */
+  const ICON_SOUND = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 8.5a4.5 4.5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12"/></svg>';
+  const ICON_MUTED = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>';
+  let soundOn = store.get(SOUND_KEY, true) !== false;
+  let gestured = false;
+  const videoMuted = () => !soundOn || !gestured;
+  function applySound(){
+    nodes.forEach((n) => { if (n.tagName === "VIDEO") n.muted = videoMuted(); });
+    muteBtn.innerHTML = soundOn ? ICON_SOUND : ICON_MUTED;
+    muteBtn.setAttribute("aria-pressed", String(!soundOn));
+    muteBtn.setAttribute("aria-label", soundOn ? "Mute videos" : "Unmute videos");
+  }
+  // click/touchend/keydown are the events that count as a real touch for the
+  // browser's sound rule; capture so it's settled before any other handler runs
+  function firstGesture(){ if (gestured) return; gestured = true; applySound(); }
+  ["click","touchend","keydown"].forEach((ev) => addEventListener(ev, firstGesture, { capture:true, passive:true }));
+  function toggleSound(){ soundOn = !soundOn; store.set(SOUND_KEY, soundOn); applySound(); }
 
   function nodeFor(item){
     if (nodes.has(item.src)) return nodes.get(item.src);
@@ -108,6 +165,7 @@
       el = document.createElement("video");
       el.src = url(item.src);
       el.playsInline = true; el.controls = false; el.preload = "metadata";
+      el.muted = videoMuted();
       el.setAttribute("webkit-playsinline","");
       // Without a poster a paused clip is just a black rectangle
       if (item.poster) el.poster = url(item.poster);
@@ -129,7 +187,7 @@
     return el;
   }
 
-  function show(i, instant){
+  function show(i){
     if (!order.length) return;
     idx = (i + order.length) % order.length;
     const item = order[idx];
@@ -149,11 +207,18 @@
     cap.textContent = item.caption || "";
     countEl.textContent = `${idx+1} / ${order.length}`;
     railI.style.width = (100*(idx+1)/order.length) + "%";
+    markShown(item.src);
 
     const el = nodes.get(item.src);
     if (el.tagName === "VIDEO"){
+      // Clips always play when they come up. Browsing by hand, they loop;
+      // in the slideshow they move on when they finish.
+      const stuck = () => { if (playing && order[idx] === item){ clearTimeout(timer); timer = setTimeout(next, SLIDE_MS); } };
+      el.muted = videoMuted();
+      el.loop = !playing;
       el.onended = () => { if (playing) next(); };
-      if (playing) el.play().catch(()=>{});
+      el.onerror = stuck;
+      el.play().catch(stuck);
     }
     schedule();
   }
@@ -192,6 +257,16 @@
     if (document.visibilityState === "visible" && playing) keepAwake(true);
   });
 
+  // While the slideshow plays, the controls fade after a few seconds so it's
+  // just Jack. Any touch brings them back.
+  let idleTimer = null;
+  function wakeChrome(){
+    document.body.classList.remove("immersive");
+    clearTimeout(idleTimer);
+    if (playing) idleTimer = setTimeout(() => document.body.classList.add("immersive"), CHROME_IDLE_MS);
+  }
+  ["pointerdown","pointermove","keydown"].forEach((ev) => addEventListener(ev, wakeChrome, { passive:true }));
+
   function setPlaying(on){
     playing = on;
     keepAwake(on);
@@ -199,14 +274,16 @@
     playBtn.setAttribute("aria-pressed", String(on));
     playBtn.setAttribute("aria-label", on ? "Pause slideshow" : "Play slideshow");
     const el = nodes.get(order[idx].src);
-    if (on && el && el.tagName === "VIDEO") el.play().catch(()=>{});
+    if (el && el.tagName === "VIDEO"){ el.loop = !on; el.play().catch(()=>{}); }
     schedule();
+    wakeChrome();
   }
 
   // --- input ---
   $("#next").addEventListener("click", next);
   $("#prev").addEventListener("click", prev);
   playBtn.addEventListener("click", () => setPlaying(!playing));
+  muteBtn.addEventListener("click", toggleSound);
 
   let sx=null, sy=null;
   addEventListener("touchstart", e => { sx=e.touches[0].clientX; sy=e.touches[0].clientY; }, {passive:true});
@@ -221,6 +298,7 @@
     if (e.key==="ArrowRight") next();
     else if (e.key==="ArrowLeft") prev();
     else if (e.key===" "){ e.preventDefault(); setPlaying(!playing); }
+    else if (e.key==="m" || e.key==="M") toggleSound();
   });
 
   let hidden=false;
@@ -241,6 +319,12 @@
     }
   }
 
+  // Start: a long-press shortcut can ask for a mood (?mood=corey). The
+  // slideshow starts on its own unless the link says ?play=0.
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("mood");
   buildFilters();
-  applyFilter("all");
+  applySound();
+  applyFilter(MOODS.some((m) => m.id === wanted) ? wanted : "all");
+  if (params.get("play") !== "0") setPlaying(true);
 })();

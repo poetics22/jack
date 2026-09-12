@@ -12,5 +12,15 @@
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Favorites", "short_name": "Favorites", "description": "Your starred photos of Jack",
+      "url": "index.html?mood=star", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "With Corey", "short_name": "With Corey", "description": "Jack with Corey",
+      "url": "index.html?mood=corey", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Silly Jack", "short_name": "Silly", "description": "Bleps, yells and funny faces",
+      "url": "index.html?mood=silly", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Loving", "short_name": "Loving", "description": "Snuggles and begging eyes",
+      "url": "index.html?mood=loving", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

@@ -9,3 +9,7 @@ encode-videos.sh
 .ffmpeg-path
 .ffprobe-path
 _check/
+flips/
+flips.tsv
+.items.tmp
+.items2.tmp

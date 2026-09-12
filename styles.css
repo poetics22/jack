@@ -87,7 +87,18 @@ html,body{
 #empty[hidden]{display:none}
 #empty .sub{font-size:13px}
 
+.ctrls{display:flex;gap:10px}
+
+/* While the slideshow plays the controls fade away after a few seconds, so
+   it's just Jack. Any touch brings them back. */
+#top,#filters,#bot,#rail{transition:opacity .6s ease}
+body.immersive #top, body.immersive #filters, body.immersive #bot{opacity:0}
+body.immersive .chip, body.immersive #filters button{pointer-events:none}
+body.immersive #rail{opacity:.3}
+body.immersive{cursor:none}
+
 @media (prefers-reduced-motion:reduce){
   #layer img,#layer video{transition:none}
   #rail>i{transition:none}
+  #top,#filters,#bot,#rail{transition:none}
 }
