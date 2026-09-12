@@ -7,6 +7,13 @@
   const NAP_EVERY = 6;           // in mixed views, at most one plain nap in every six photos
   const MIN_FOR_CHIP = 3;
 
+  // Focal drift: each photo slowly eases toward Jack. focus.js holds, per
+  // photo, the box he was found in as fractions of the photo [x, y, w, h].
+  const FOCUS = window.JACK_FOCUS || {};
+  const DRIFT_MS = 6500;         // a touch longer than a slide, so it's still moving when the next one fades in
+  const MAX_ZOOM = 1.8;
+  const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   // The chips offer moods. Each gathers one or more tags, so the bar stays
   // short however finely the photos were tagged. ("with-me" is the stored id
   // for "With Jon".)
@@ -210,6 +217,10 @@
     markShown(item.src);
 
     const el = nodes.get(item.src);
+    if (el.tagName === "IMG"){
+      if (el.complete && el.naturalWidth) drift(el, item);
+      else el.addEventListener("load", () => { if (currentSrc === item.src) drift(el, item); }, { once:true });
+    }
     if (el.tagName === "VIDEO"){
       // Clips always play when they come up. Browsing by hand, they loop;
       // in the slideshow they move on when they finish.
@@ -221,6 +232,38 @@
       el.play().catch(stuck);
     }
     schedule();
+  }
+
+  /* ---------------------------------------------------------------
+     Slowly ease from the whole photo toward Jack. The zoom is chosen so the
+     box he was found in ends up filling most of the screen (capped, so it
+     stays calm), and the pan toward him grows with the zoom — a close-up
+     barely moves, a far-off shot glides in. Photos where he wasn't found
+     get a gentle drift to the middle. Videos and gifs are left alone.
+  --------------------------------------------------------------- */
+  function drift(el, item){
+    el.style.transition = "opacity .6s ease";
+    el.style.transform = "none";
+    if (reduceMotion || item.type === "video" || /\.gif$/i.test(item.src)) return;
+    const W = el.naturalWidth, H = el.naturalHeight;
+    const vw = layer.clientWidth, vh = layer.clientHeight;
+    if (!W || !H || !vw || !vh) return;
+    const c = Math.min(vw / W, vh / H);                  // the "contain" fit
+    const ox = (vw - W * c) / 2, oy = (vh - H * c) / 2;  // letterbox offsets
+    const f = FOCUS[item.src];
+    let cx = vw / 2, cy = vh / 2, z = 1.08;
+    if (f){
+      const [fx, fy, fw, fh] = f;
+      cx = ox + (fx + fw / 2) * W * c;
+      cy = oy + (fy + fh / 2) * H * c;
+      z = Math.min((vw * 0.9) / (fw * W * c), (vh * 0.9) / (fh * H * c));
+    }
+    z = Math.min(MAX_ZOOM, Math.max(1.04, z));          // even a close-up breathes a little
+    const k = Math.min(1, (z - 1) / 0.6);                // how far to bring him toward centre
+    const px = cx + k * (vw / 2 - cx), py = cy + k * (vh / 2 - cy);
+    void el.offsetWidth;                                 // commit the reset before animating
+    el.style.transition = `opacity .6s ease, transform ${DRIFT_MS}ms cubic-bezier(.33,.1,.3,1)`;
+    el.style.transform = `translate(${px - z * cx}px, ${py - z * cy}px) scale(${z})`;
   }
 
   function schedule(){

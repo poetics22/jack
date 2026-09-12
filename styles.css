@@ -24,6 +24,8 @@ html,body{
   object-fit:contain;opacity:0;transition:opacity .6s ease;background:var(--bg);
 }
 #layer .on{opacity:1}
+/* the focal drift scales and pans each photo from its top-left corner */
+#layer img{transform-origin:0 0;will-change:transform}
 
 .zone{position:absolute;top:0;bottom:0;border:0;background:transparent;cursor:pointer;z-index:5}
 .zone.l{left:0;width:42%}
