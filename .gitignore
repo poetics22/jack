@@ -10,6 +10,7 @@ encode-videos.sh
 .ffprobe-path
 _check/
 flips/
+_corey/
 flips.tsv
 .items.tmp
 .items2.tmp
