@@ -94,7 +94,11 @@ html,body{
 /* While the slideshow plays the controls fade away after a few seconds, so
    it's just Jack. Any touch brings them back. */
 #top,#filters,#bot,#rail{transition:opacity .6s ease}
-body.immersive #top, body.immersive #filters, body.immersive #bot{opacity:0}
+body.immersive #top, body.immersive #filters{opacity:0}
+/* the footer fades too — except a caption (like the date in Early days), which stays */
+body.immersive:not(.has-cap) #bot{opacity:0}
+#count{transition:opacity .6s ease}
+body.immersive #count{opacity:0}
 body.immersive .chip, body.immersive #filters button{pointer-events:none}
 body.immersive #rail{opacity:.3}
 body.immersive{cursor:none}

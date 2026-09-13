@@ -7,6 +7,16 @@
   const NAP_EVERY = 6;           // in mixed views, at most one plain nap in every six photos
   const MIN_FOR_CHIP = 3;
 
+  // "Early days" = everything from before this year — Jon's own photos start
+  // in 2021, so this is mostly Corey's photos back to 2014.
+  const EARLY_BEFORE = 2021;
+
+  // Date taken, read from the file name (20240826_155323.jpg, corey_20140421_212300.jpg …)
+  function dateOf(it){
+    const m = /(?:^|[^0-9])(20[0-2]\d)([01]\d)([0-3]\d)/.exec(it.src);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+
   // Focal drift: each photo slowly eases toward Jack. focus.js holds, per
   // photo, the box he was found in as fractions of the photo [x, y, w, h].
   const FOCUS = window.JACK_FOCUS || {};
@@ -19,6 +29,8 @@
   // for "With Jon".)
   const MOODS = [
     { id:"star",    label:"★ Favorites", cls:"star", test: (it) => !!it.star },
+    { id:"early",   label:"Early days",  chrono:true,
+      test: (it) => { const d = dateOf(it); return !!d && d.getFullYear() < EARLY_BEFORE; } },
     { id:"jon",     label:"With Jon",    tags:["with-me"] },
     { id:"corey",   label:"With Corey",  tags:["with-corey"] },
     { id:"silly",   label:"Silly",       tags:["funny","licking","vocal"] },
@@ -124,7 +136,11 @@
   function applyFilter(f){
     filter = f;
     startNewRoundsWhereFinished();
-    order = buildOrder(itemsFor(f));
+    // Most moods shuffle toward joy; Early days tells the story in order instead
+    const mood = MOODS.find((m) => m.id === f);
+    order = (mood && mood.chrono)
+      ? itemsFor(f).slice().sort((a, b) => dateOf(a) - dateOf(b))
+      : buildOrder(itemsFor(f));
     idx = 0;
     [...filtersEl.children].forEach((b) => b.classList.toggle("on", b.dataset.f === f));
     nodes.forEach((n) => n.remove());
@@ -211,7 +227,10 @@
       }
     });
 
-    cap.textContent = item.caption || "";
+    const taken = dateOf(item);
+    cap.textContent = item.caption ||
+      (filter === "early" && taken ? taken.toLocaleDateString(undefined, { month:"long", year:"numeric" }) : "");
+    document.body.classList.toggle("has-cap", !!cap.textContent);
     countEl.textContent = `${idx+1} / ${order.length}`;
     railI.style.width = (100*(idx+1)/order.length) + "%";
     markShown(item.src);
