@@ -11,6 +11,7 @@ encode-videos.sh
 _check/
 flips/
 _corey/
+make-jackshare.ps1
 flips.tsv
 .items.tmp
 .items2.tmp
