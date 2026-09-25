@@ -12,6 +12,7 @@ _check/
 flips/
 _corey/
 make-jackshare.ps1
+library-sync.ps1
 flips.tsv
 .items.tmp
 .items2.tmp
